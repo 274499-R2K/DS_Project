@@ -44,7 +44,7 @@ def plot_multiline(
 
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
-    csv_path = script_dir.parent / "Data" / "interim" / "merged" / ("srt_05.csv")
+    csv_path = script_dir.parent / "Data" / "interim" / "merged" / "srt_02.csv"
 
     df = load_csv(csv_path)
 
