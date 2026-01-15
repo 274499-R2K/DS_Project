@@ -1,13 +1,13 @@
-import logging
-import re
-import zipfile
-from pathlib import Path
+import logging # better message printing
+import re # regex module to scan .zip filename and match eith .csv file
+import zipfile # reading .zip
+from pathlib import Path # path handling
 from typing import Dict, Tuple
 import pandas as pd
 
 
-LOGGER = logging.getLogger(__name__)
-SENSORS = ["Accelerometer", "Gyroscope", "Orientation"]
+LOGGER = logging.getLogger(__name__) #module name
+SENSORS = ["Accelerometer", "Gyroscope", "Orientation"] # list of what I keep
 
 
 def _project_root() -> Path:
