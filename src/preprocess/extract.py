@@ -1,3 +1,5 @@
+#IMPORT AND CONSTANTS DEFINITION
+
 import logging # better message printing
 import re # regex module to scan .zip filename and match eith .csv file
 import zipfile # reading .zip
@@ -5,99 +7,103 @@ from pathlib import Path # path handling
 from typing import Dict, Tuple
 import pandas as pd
 
-
 LOGGER = logging.getLogger(__name__) #module name
 SENSORS = ["Accelerometer", "Gyroscope", "Orientation"] # list of what I keep
+#-------------------------------------------------------------------------
 
+# PROJECT ROOT FINDER:
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
+# from current path (__file__) going up to layers to project folder
 
+#----------------------------------------------------------------------------
+
+# FILE NAME READING
+# Returning class label and number from the zip filename stem.
+# Expected format: <class>_<number>-<date-time>
+# Example: wlk_01-2026-01-10_12-33-28
 
 def parse_recording_id(zip_path: Path) -> Tuple[str, str]:
-    # Parse class label and number from the zip filename stem.
-    # Expected format: <class>_<number>-<date-time>
-    # Example: wlk_01-2026-01-10_12-33-28
-
-    stem = zip_path.stem
+    stem = zip_path.stem # removing ".zip"
     match = re.match(r"^(?P<class>[A-Za-z]+)_(?P<num>\d+)-", stem)
+    # r" for row string ; ^ start of the string ;
+    # takes digit before underscore and put in <class>
+    # takes number before dash sign and put in <num>
+
     if not match:
-        raise ValueError(f"Unrecognized zip name format: {stem}")
+        raise ValueError(f"Unrecognized zip name format: {stem}") # zip file name incorrect
+
+    # variable assignment and return
     class_label = match.group("class")
     number = match.group("num")
     return class_label, number
+#-----------------------------------------------------------------------------------
 
-
-def _token_match(sensor: str, name: str) -> bool:
-    pattern = rf"(?<![A-Za-z0-9]){re.escape(sensor)}(?![A-Za-z0-9])"
-    return re.search(pattern, name, flags=re.IGNORECASE) is not None
-
-
-def _sensor_match_score(sensor: str, member_name: str) -> Tuple[int, int, int]:
-    lower_name = member_name.lower()
-    lower_sensor = sensor.lower()
-    is_csv = 0 if lower_name.endswith(".csv") else 1
-    if _token_match(sensor, member_name):
-        priority = 0
-    elif lower_sensor in lower_name:
-        priority = 1
-    else:
-        priority = 2
-    return priority, is_csv, len(member_name)
-
+# ZIP INNER FILES SELECTION
+# Finding the wanted sensors zip members.
+# Returns a mapping of sensor name to member name inside the zip.
 
 def find_sensor_members(zf: zipfile.ZipFile) -> Dict[str, str]:
-    # Find best matching zip members for the expected sensors.
-    # Returns a mapping of sensor name to member name inside the zip.
+    members = zf.namelist() # list of all paths
+    results: Dict[str, str] = {}  # dictionary initialization
 
-    members = zf.namelist()
-    results: Dict[str, str] = {}
-    for sensor in SENSORS:
+    for s in SENSORS: # take only desired values
+        target = f"{s}.csv".lower() #  take name with all lowercase
         candidates = []
-        for member in members:
-            score = _sensor_match_score(sensor, member)
-            if score[0] < 2:
-                candidates.append((score, member))
-        if not candidates:
-            continue
-        candidates.sort(key=lambda item: item[0])
-        results[sensor] = candidates[0][1]
+        for m in members:
+            if Path(m).name.lower() == target:  # take target sensors
+                candidates.append(m)
+        if candidates:
+            results[s] = min(candidates, key=len) # choose the shortest
     return results
+# returning for the current zip file the dict with: sensor_name : path
+# ------------------------------------------------------------------------------------------------
 
+# MAIN ZIP FOR LOOPING
+# this is the function to called in the running process
 
-def extract_and_load_all(
-    raw_dir: Path | None = None,
-) -> Dict[str, pd.DataFrame]:
+def extract_and_load_all(raw_dir: Path | None = None,output_dir: Path | None = None,) -> Dict[str, pd.DataFrame]:
+
     # Extract and load sensor CSVs from all zip files in raw_dir.
-    root = _project_root()
-    raw_dir = raw_dir or (root / "Data/raw")
+    root = _project_root() # root folder
+    raw_dir = raw_dir or (root / "Data/raw")  # passed raw dir or default if None
 
     if not raw_dir.exists():
         LOGGER.warning("Raw directory does not exist: %s", raw_dir)
-        return {}
+        return {} # ERROR message if folder not existing
 
-    data: Dict[str, pd.DataFrame] = {}
-    zip_files = sorted(raw_dir.glob("*.zip"))
+    output_dir = output_dir or (root / "Data" / "interim" / "extracted") # passed out dir or default
+    output_dir.mkdir(parents=True, exist_ok=True) # folder creation or acceptance if existing
 
-    for zip_path in zip_files:
-        LOGGER.info("Processing zip: %s", zip_path.name)
-        class_label, number = parse_recording_id(zip_path)
+    data: Dict[str, pd.DataFrame] = {} # dataframe initialization
+    zip_files = sorted(raw_dir.glob("*.zip")) # taking sorted zip files from input folder
 
-        with zipfile.ZipFile(zip_path) as zf:
-            members = find_sensor_members(zf)
 
-            missing = sorted(set(SENSORS) - members.keys())
-            if missing:
+    for zip_path in zip_files:  # main zip files loop
+        LOGGER.info("Processing zip: %s", zip_path.name) # operation message
+        class_label, number = parse_recording_id(zip_path) # extracting class and ID by proper func call
+
+        with zipfile.ZipFile(zip_path) as zf:  # opening current file
+            members = find_sensor_members(zf) # extract the desired sensor files with proper func call
+
+            missing = sorted(set(SENSORS) - members.keys()) # compare desired vs obtained
+            if missing:  # error if missing sensore existing (TRUE)
                 LOGGER.warning("Missing sensors in %s: %s", zip_path.name, ", ".join(missing))
 
-            if not members:
+            if not members: # if members extracted are none (false) skip current zip loop cycle
                 continue
 
-            for sensor, member in members.items():
-                with zf.open(member) as member_file:
-                    df = pd.read_csv(member_file)
+            for sensor, memeber in members.items(): # key-value pair looping in dictionary
+                with zf.open(member) as member_file: # opem path value file
+                    df = pd.read_csv(member_file) # insert in dataframe
+
+                out_path = output_dir / f"{class_label}_{number}_{sensor}.csv" # build/overwrite file in output folder
+                df.to_csv(out_path, index=False) # df to csv
+
                 key = f"{class_label}_{number}_{sensor}"
-                data[key] = df
+                data[key] = df # saving data also internally
+
                 LOGGER.info("Loaded %s: %s rows, %s cols", sensor, df.shape[0], df.shape[1])
 
     return data
