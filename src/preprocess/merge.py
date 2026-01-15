@@ -1,72 +1,56 @@
+# IMPORT AND COSTANTS DEFINITION
+
 import logging
-import re
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 import numpy as np
 import pandas as pd
+
 from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
+# check of date-time and numeric like type of the series
 
-
-LOGGER = logging.getLogger(__name__)
-SENSOR_PREFIX = {
-    "Accelerometer": "acc_",
-    "Gyroscope": "gyr_",
-    "Orientation": "ori_",
-}
+LOGGER = logging.getLogger(__name__) # to identify provenience of messages
+SENSOR_PREFIX = {"Accelerometer": "acc_", "Gyroscope": "gyr_", "Orientation": "ori_"}
 SENSORS = list(SENSOR_PREFIX.keys())
 FREQ = "20ms"
-
-
+# -----------------------------------------------------------------------------------------------
+# ROOT FOLDER LOCATING
 def project_root() -> Path:
     # Return the project root folder.
     return Path(__file__).resolve().parents[2]
-
-
-def parse_recording_key(path: Path) -> Optional[Tuple[str, str]]:
-    # Return (recording_key, sensor) parsed from a CSV filename.
-    sensor_map = {s.lower(): s for s in SENSORS}
-
-    parts = path.stem.rsplit("_", 2)
-    if len(parts) == 3:
-        class_label, rec_id, sensor = parts
-        sensor_name = sensor_map.get(sensor.lower())
-        if sensor_name is not None:
-            rec_key = f"{class_label}_{rec_id}"
-            return rec_key, sensor_name
-
-    sensor_name = sensor_map.get(path.stem.lower())
-    if sensor_name is None:
-        LOGGER.warning("Skipping unrecognized filename: %s", path.name)
-        return None
-
-    parent = path.parent.name
-    match = re.match(r"^(?P<class>[A-Za-z]+)_(?P<num>\d+)-", parent)
-    if not match:
-        LOGGER.warning("Skipping unrecognized folder for %s", path.name)
-        return None
-
-    rec_key = f"{match.group('class')}_{match.group('num')}"
-    return rec_key, sensor_name
-
+#-----------------------------------------------------------------------------------------
+# CREATING AND FILLING A NESTED DICTIONARIES
+# Discover sensor CSV files and group them by their same recording key
+# (group of 3 different sensors data of the same recording session aggregated)
 
 def discover_files(extracted_dir: Path) -> Dict[str, Dict[str, Path]]:
-    # Discover sensor CSV files grouped by recording key.
-    if not extracted_dir.exists():
+    if not extracted_dir.exists(): # if not FALSE
         raise FileNotFoundError(f"Extracted folder not found: {extracted_dir}")
 
     grouped: Dict[str, Dict[str, Path]] = {}
-    for path in extracted_dir.rglob("*.csv"):
-        parsed = parse_recording_key(path)
-        if parsed is None:
-            continue
-        rec_key, sensor = parsed
-        grouped.setdefault(rec_key, {})
-        if sensor in grouped[rec_key]:
+    # creating a multidimensional nested dictionary:
+    # {key 1 (rec_key name) : { key 2 (sensor) : associated path , ... }}
+
+
+    for path in extracted_dir.rglob("*.csv"): # for every path in input folder
+        parts = path.stem.rsplit("_", 2) # splitting path in 3: <class> <ID> <sensor>
+        if len(parts) != 3:
+            LOGGER.warning("Skipping unrecognized filename: %s", path.name)
+            continue # iflen(parts) != 3 go on with next path
+
+        class_label, rec_id, sensor = parts # assignment of name parts to variables
+        rec_key = f"{class_label}_{rec_id}" # I'm taking future name rec_key
+
+        grouped.setdefault(rec_key, {}) # adding the first <class>_<ID> key to grouped dict [1st layer]
+
+        if sensor in grouped[rec_key]: # preventing having 2 same sensor keys
             LOGGER.warning("Duplicate %s for %s, keeping first", sensor, rec_key)
             continue
-        grouped[rec_key][sensor] = path
-    return grouped
 
+        grouped[rec_key][sensor] = path  # adding to each key pair the relative path [2nd layer]
+
+    return grouped
+#-------------------------------------------------------------------------------------------------------
 
 def parse_time_series(s: pd.Series) -> pd.DatetimeIndex:
     # Parse a time series into a DatetimeIndex.
@@ -93,7 +77,7 @@ def parse_time_series(s: pd.Series) -> pd.DatetimeIndex:
 
     dt = pd.to_datetime(s, errors="coerce", utc=True)
     return pd.DatetimeIndex(dt)
-
+#------------------------------------------------------------------------------------------------------
 
 def load_sensor_frame(path: Path, sensor: str) -> Optional[pd.DataFrame]:
     # Load a sensor CSV and return a frame with prefixed measurement columns.
