@@ -2,7 +2,6 @@ import logging
 import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
@@ -19,12 +18,12 @@ FREQ = "20ms"
 
 
 def project_root() -> Path:
-    """Return the project root folder."""
+    # Return the project root folder.
     return Path(__file__).resolve().parents[2]
 
 
 def parse_recording_key(path: Path) -> Optional[Tuple[str, str]]:
-    """Return (recording_key, sensor) parsed from a CSV filename."""
+    # Return (recording_key, sensor) parsed from a CSV filename.
     sensor_map = {s.lower(): s for s in SENSORS}
 
     parts = path.stem.rsplit("_", 2)
@@ -51,7 +50,7 @@ def parse_recording_key(path: Path) -> Optional[Tuple[str, str]]:
 
 
 def discover_files(extracted_dir: Path) -> Dict[str, Dict[str, Path]]:
-    """Discover sensor CSV files grouped by recording key."""
+    # Discover sensor CSV files grouped by recording key.
     if not extracted_dir.exists():
         raise FileNotFoundError(f"Extracted folder not found: {extracted_dir}")
 
@@ -70,7 +69,7 @@ def discover_files(extracted_dir: Path) -> Dict[str, Dict[str, Path]]:
 
 
 def parse_time_series(s: pd.Series) -> pd.DatetimeIndex:
-    """Parse a time series into a DatetimeIndex."""
+    # Parse a time series into a DatetimeIndex.
     if is_datetime64_any_dtype(s):
         dt = pd.to_datetime(s, errors="coerce", utc=True)
         return pd.DatetimeIndex(dt)
@@ -97,7 +96,7 @@ def parse_time_series(s: pd.Series) -> pd.DatetimeIndex:
 
 
 def load_sensor_frame(path: Path, sensor: str) -> Optional[pd.DataFrame]:
-    """Load a sensor CSV and return a frame with prefixed measurement columns."""
+    # Load a sensor CSV and return a frame with prefixed measurement columns.
     df = pd.read_csv(path)
     df.columns = [str(col).strip() for col in df.columns]
     if "time" not in df.columns:
@@ -137,7 +136,7 @@ def load_sensor_frame(path: Path, sensor: str) -> Optional[pd.DataFrame]:
 def resample_to_grid(
     df: pd.DataFrame, target_index: pd.DatetimeIndex, t_start: pd.Timestamp, t_end: pd.Timestamp
 ) -> pd.DataFrame:
-    """Resample a sensor frame onto the target time grid."""
+    # Resample a sensor frame onto the target time grid.
     df = df.sort_values("time").drop_duplicates(subset="time", keep="first")
     df = df.set_index("time")
     df = df.loc[(df.index >= t_start) & (df.index <= t_end)]
@@ -154,7 +153,7 @@ def resample_to_grid(
 def merge_recording(
     rec_key: str, sensor_paths: Dict[str, Path], output_dir: Path
 ) -> Optional[Path]:
-    """Merge sensors for a recording and save the merged CSV."""
+    # Merge sensors for a recording and save the merged CSV.
     frames = []
     tmins = []
     tmaxs = []
@@ -209,7 +208,7 @@ def merge_recording(
 
 
 def run_merge(extracted_dir: Optional[Path] = None, output_dir: Optional[Path] = None) -> None:
-    """Run the merge process for all recordings in extracted_dir."""
+    # Run the merge process for all recordings in extracted_dir.
     root = project_root()
     extracted_dir = extracted_dir or (root / "Data" / "interim" / "extracted")
     output_dir = output_dir or (root / "Data" / "interim" / "merged")

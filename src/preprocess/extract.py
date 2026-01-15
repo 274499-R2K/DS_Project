@@ -94,7 +94,7 @@ def extract_and_load_all(raw_dir: Path | None = None,output_dir: Path | None = N
             if not members: # if members extracted are none (false) skip current zip loop cycle
                 continue
 
-            for sensor, memeber in members.items(): # key-value pair looping in dictionary
+            for sensor, member in members.items(): # key-value pair looping in dictionary
                 with zf.open(member) as member_file: # opem path value file
                     df = pd.read_csv(member_file) # insert in dataframe
 
@@ -107,9 +107,14 @@ def extract_and_load_all(raw_dir: Path | None = None,output_dir: Path | None = N
                 LOGGER.info("Loaded %s: %s rows, %s cols", sensor, df.shape[0], df.shape[1])
 
     return data
+#-----------------------------------------------------------------------------------------------------------
 
 
-if __name__ == "__main__":
+
+
+# SCRIPT RUNNING SUMMARY
+
+if __name__ == "__main__": # additional info showed when running as a script and not by external call
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     raw_dir = _project_root() / "Data/raw"
