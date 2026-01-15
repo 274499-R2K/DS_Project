@@ -65,37 +65,12 @@ def find_sensor_members(zf: zipfile.ZipFile) -> Dict[str, str]:
     return results
 
 
-def extract_members(
-    zip_path: Path, out_dir: Path, members: Dict[str, str]
-) -> Dict[str, Path]:
-
-    # Extract only selected members to out_dir.
-    # Returns a mapping of sensor name to extracted CSV path.
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    extracted: Dict[str, Path] = {}
-    with zipfile.ZipFile(zip_path) as zf:
-        for sensor, member in members.items():
-            extracted_path = Path(zf.extract(member, path=out_dir))
-            extracted[sensor] = extracted_path
-            LOGGER.info("Extracted %s to %s", sensor, extracted_path)
-    return extracted
-
-
-def load_sensor_csv(csv_path: Path) -> pd.DataFrame:
-    #Load a sensor CSV into a DataFrame without extra processing.
-    return pd.read_csv(csv_path)
-
-
 def extract_and_load_all(
     raw_dir: Path | None = None,
-    extracted_root: Path | None = None,
-    keep_extracted: bool = True,
 ) -> Dict[str, pd.DataFrame]:
-    #Extract and load sensor CSVs from all zip files in raw_dir.
+    # Extract and load sensor CSVs from all zip files in raw_dir.
     root = _project_root()
     raw_dir = raw_dir or (root / "Data/raw")
-    extracted_root = extracted_root or (root / "Data/interim/extracted")
 
     if not raw_dir.exists():
         LOGGER.warning("Raw directory does not exist: %s", raw_dir)
@@ -106,37 +81,24 @@ def extract_and_load_all(
 
     for zip_path in zip_files:
         LOGGER.info("Processing zip: %s", zip_path.name)
-        try:
-            class_label, number = parse_recording_id(zip_path)
-        except ValueError as exc:
-            LOGGER.warning("%s", exc)
-            continue
+        class_label, number = parse_recording_id(zip_path)
 
         with zipfile.ZipFile(zip_path) as zf:
             members = find_sensor_members(zf)
 
-        missing = [s for s in SENSORS if s not in members]
-        if missing:
-            LOGGER.warning("Missing sensors in %s: %s", zip_path.name, ", ".join(missing))
+            missing = sorted(set(SENSORS) - members.keys())
+            if missing:
+                LOGGER.warning("Missing sensors in %s: %s", zip_path.name, ", ".join(missing))
 
-        if not members:
-            continue
+            if not members:
+                continue
 
-        out_dir = extracted_root / zip_path.stem
-        extracted_paths = extract_members(zip_path, out_dir, members)
-
-        for sensor, csv_path in extracted_paths.items():
-            df = load_sensor_csv(csv_path)
-            key = f"{class_label}_{number}_{sensor}"
-            data[key] = df
-            LOGGER.info("Loaded %s: %s rows, %s cols", sensor, df.shape[0], df.shape[1])
-
-        if not keep_extracted:
-            for csv_path in extracted_paths.values():
-                try:
-                    csv_path.unlink()
-                except OSError as exc:
-                    LOGGER.warning("Failed to delete %s: %s", csv_path, exc)
+            for sensor, member in members.items():
+                with zf.open(member) as member_file:
+                    df = pd.read_csv(member_file)
+                key = f"{class_label}_{number}_{sensor}"
+                data[key] = df
+                LOGGER.info("Loaded %s: %s rows, %s cols", sensor, df.shape[0], df.shape[1])
 
     return data
 
@@ -169,5 +131,4 @@ if __name__ == "__main__":
                 parts.append(f"{sensor_name} ({df.shape[0]} rows)")
         sensors_summary = ", ".join(parts)
         print(f"{rec_id}: {sensors_summary}")
-
 
