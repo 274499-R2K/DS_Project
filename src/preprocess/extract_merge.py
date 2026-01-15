@@ -15,11 +15,10 @@ def _project_root() -> Path:
 
 
 def parse_recording_id(zip_path: Path) -> Tuple[str, str]:
-    """Parse class label and number from the zip filename stem.
+    # Parse class label and number from the zip filename stem.
+    # Expected format: <class>_<number>-<date-time>
+    # Example: wlk_01-2026-01-10_12-33-28
 
-    Expected format: <class>_<number>-<date-time>
-    Example: wlk_01-2026-01-10_12-33-28
-    """
     stem = zip_path.stem
     match = re.match(r"^(?P<class>[A-Za-z]+)_(?P<num>\d+)-", stem)
     if not match:
@@ -48,10 +47,9 @@ def _sensor_match_score(sensor: str, member_name: str) -> Tuple[int, int, int]:
 
 
 def find_sensor_members(zf: zipfile.ZipFile) -> Dict[str, str]:
-    """Find best matching zip members for the expected sensors.
+    # Find best matching zip members for the expected sensors.
+    # Returns a mapping of sensor name to member name inside the zip.
 
-    Returns a mapping of sensor name to member name inside the zip.
-    """
     members = zf.namelist()
     results: Dict[str, str] = {}
     for sensor in SENSORS:
@@ -70,10 +68,10 @@ def find_sensor_members(zf: zipfile.ZipFile) -> Dict[str, str]:
 def extract_members(
     zip_path: Path, out_dir: Path, members: Dict[str, str]
 ) -> Dict[str, Path]:
-    """Extract only selected members to out_dir.
 
-    Returns a mapping of sensor name to extracted CSV path.
-    """
+    # Extract only selected members to out_dir.
+    # Returns a mapping of sensor name to extracted CSV path.
+
     out_dir.mkdir(parents=True, exist_ok=True)
     extracted: Dict[str, Path] = {}
     with zipfile.ZipFile(zip_path) as zf:
@@ -85,7 +83,7 @@ def extract_members(
 
 
 def load_sensor_csv(csv_path: Path) -> pd.DataFrame:
-    """Load a sensor CSV into a DataFrame without extra processing."""
+    #Load a sensor CSV into a DataFrame without extra processing.
     return pd.read_csv(csv_path)
 
 
@@ -94,7 +92,7 @@ def extract_and_load_all(
     extracted_root: Path | None = None,
     keep_extracted: bool = True,
 ) -> Dict[str, pd.DataFrame]:
-    """Extract and load sensor CSVs from all zip files in raw_dir."""
+    #Extract and load sensor CSVs from all zip files in raw_dir.
     root = _project_root()
     raw_dir = raw_dir or (root / "Data/raw")
     extracted_root = extracted_root or (root / "Data/interim/extracted")
