@@ -3,11 +3,7 @@
 import logging
 from pathlib import Path
 from typing import Dict, Optional
-import numpy as np
 import pandas as pd
-
-from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
-# check of date-time and numeric like type of the series
 
 LOGGER = logging.getLogger(__name__) # to identify provenience of messages
 SENSOR_PREFIX = {"Accelerometer": "acc_", "Gyroscope": "gyr_", "Orientation": "ori_"}
@@ -44,7 +40,6 @@ def discover_files(extracted_dir: Path) -> Dict[str, Dict[str, Path]]:
         grouped.setdefault(rec_key, {}) # adding the first <class>_<ID> key to grouped dict [1st layer]
 
         if sensor in grouped[rec_key]: # preventing having 2 same sensor keys
-            LOGGER.warning("Duplicate %s for %s, keeping first", sensor, rec_key)
             continue
 
         grouped[rec_key][sensor] = path  # adding to each key pair the relative path [2nd layer]
@@ -52,159 +47,129 @@ def discover_files(extracted_dir: Path) -> Dict[str, Dict[str, Path]]:
     return grouped
 #-------------------------------------------------------------------------------------------------------
 
-def parse_time_series(s: pd.Series) -> pd.DatetimeIndex:
-    # Parse a time series into a DatetimeIndex.
-    if is_datetime64_any_dtype(s):
-        dt = pd.to_datetime(s, errors="coerce", utc=True)
-        return pd.DatetimeIndex(dt)
-
-    if is_numeric_dtype(s):
-        values = pd.to_numeric(s, errors="coerce")
-        abs_med = np.nanmedian(np.abs(values.to_numpy(dtype=float)))
-        if np.isnan(abs_med):
-            dt = pd.to_datetime(values, errors="coerce", utc=True)
-            return pd.DatetimeIndex(dt)
-        if abs_med > 1e17:
-            unit = "ns"
-        elif abs_med > 1e14:
-            unit = "us"
-        elif abs_med > 1e11:
-            unit = "ms"
-        else:
-            unit = "s"
-        dt = pd.to_datetime(values, unit=unit, errors="coerce", utc=True)
-        return pd.DatetimeIndex(dt)
-
-    dt = pd.to_datetime(s, errors="coerce", utc=True)
-    return pd.DatetimeIndex(dt)
-#------------------------------------------------------------------------------------------------------
+# PREPARING EACH CSV FILE COLUMNS TO BE MERGED
+# Load a sensor CSV from its path and return a dataframe with prefixed measurement columns
+# and correct time and data format
 
 def load_sensor_frame(path: Path, sensor: str) -> Optional[pd.DataFrame]:
-    # Load a sensor CSV and return a frame with prefixed measurement columns.
-    df = pd.read_csv(path)
-    df.columns = [str(col).strip() for col in df.columns]
-    if "time" not in df.columns:
-        df = pd.read_csv(path, sep=";", engine="python")
-        df.columns = [str(col).strip() for col in df.columns]
-        df = df.loc[:, [col for col in df.columns if col and not col.lower().startswith("unnamed")]]
-    if "time" not in df.columns:
-        LOGGER.warning("Missing time column in %s", path.name)
-        return None
 
-    parsed_time = parse_time_series(df["time"])
-    invalid = parsed_time.isna()
-    if invalid.any():
-        LOGGER.warning("Dropped %s rows with invalid time in %s", invalid.sum(), path.name)
-    if invalid.all():
-        LOGGER.warning("No valid time values in %s", path.name)
-        return None
+    df = pd.read_csv(path) # read path associated csv
 
-    df = df.loc[~invalid].copy()
-    df["time"] = parsed_time[~invalid].values
+    new_cols = []
+    for col in df.columns:
+        new_cols.append(str(col).strip())
+    df.columns = new_cols
+    # conversion to string and space removing of columns names
+
+    df["time"] = pd.to_datetime(df["time"], unit="ns", utc=True)
+    # convertion to pd dateformat with known ns unit and time zone assumed known
 
     drop_cols = [col for col in df.columns if col.lower() in {"second_elapsed", "seconds_elapsed"}]
+    # get the "second elapsed" columns to erease
     if drop_cols:
-        df = df.drop(columns=drop_cols)
+        df = df.drop(columns=drop_cols) # dropping the columns
 
     measurement_cols = [col for col in df.columns if col != "time"]
     if measurement_cols:
-        df[measurement_cols] = df[measurement_cols].apply(
-            lambda col: pd.to_numeric(col, errors="coerce")
-        )
-    prefix = SENSOR_PREFIX[sensor]
+        df[measurement_cols] = df[measurement_cols].apply(pd.to_numeric, errors="coerce")
+    # ensuring columns with data to have numeric format
+
+    prefix = SENSOR_PREFIX[sensor] # getting sensor prefix saved at the start
     rename = {col: f"{prefix}{col}" for col in measurement_cols}
     df = df.rename(columns=rename)
+    # changing columns title name with sensor prefix + current name
+    # from x -> acc_x
+
     return df
+#-----------------------------------------------------------------------------------------------------
 
+# FORCING RESAMPLE TO A COMMON MASTER TIMELINE
+# all same record's sensor data need to have same interval and total number of time steps.
 
-def resample_to_grid(
-    df: pd.DataFrame, target_index: pd.DatetimeIndex, t_start: pd.Timestamp, t_end: pd.Timestamp
-) -> pd.DataFrame:
-    # Resample a sensor frame onto the target time grid.
-    df = df.sort_values("time").drop_duplicates(subset="time", keep="first")
-    df = df.set_index("time")
-    df = df.loc[(df.index >= t_start) & (df.index <= t_end)]
+def resample_to_grid(df: pd.DataFrame, target_index: pd.DatetimeIndex, t_start: pd.Timestamp, t_end: pd.Timestamp) -> pd.DataFrame:
+    # df -> input of one sensor table
+    # target_index -> artificial master time axis
+    # t_start and t_end -> overlap window external extremes
+
+    df = df.sort_values("time").drop_duplicates(subset="time", keep="first") # sort and remove duplicate, unnecessary
+    df = df.set_index("time") # giving time column as index needed by interpolate method
+
+    df = df.loc[(df.index >= t_start) & (df.index <= t_end)] # cropping out window samples
+
     df = df.reindex(df.index.union(target_index)).sort_index()
+    # I'm creating a new index incorporating the original timestamps indexes and the desired master timestamps series
+    # Needed for interpolation that is working woth neighbours
 
-    numeric_cols = df.select_dtypes(include="number").columns
-    if len(numeric_cols) > 0:
-        df[numeric_cols] = df[numeric_cols].interpolate(method="time")
-        df[numeric_cols] = df[numeric_cols].ffill(limit=2).bfill(limit=2)
-    df = df.reindex(target_index)
+    df = df.interpolate(method="time").ffill(limit=2).bfill(limit=2)
+    # forward and backward filling up to 40ms to mitigate neighbour missing data
+    df = df.reindex(target_index) # now i reduce to the master timestamps series
     return df
+#---------------------------------------------------------------------------------------------------------------------------------
 
+# MERGING
+# Merge alligned sensors for a recording and save the merged as .csv
 
-def merge_recording(
-    rec_key: str, sensor_paths: Dict[str, Path], output_dir: Path
-) -> Optional[Path]:
-    # Merge sensors for a recording and save the merged CSV.
-    frames = []
-    tmins = []
-    tmaxs = []
-    used_files = []
+def merge_recording(rec_key: str, sensor_paths: Dict[str, Path], output_dir: Path) -> Optional[Path]:
+    # rec_key class_ID pair key to access first layer
+    # sensor_paths -> second layer's dictionary sensor:path
+    # output_dir where to store merging
+
+    frames = [] # list for each sensor's dataframe
+    tmins = [] # each sensor’s first timestamp
+    tmaxs = [] # each sensor’s last timestamp
+    used_files = [] # names of files used for logging
 
     for sensor in SENSORS:
-        path = sensor_paths[sensor]
-        df = load_sensor_frame(path, sensor)
+        path = sensor_paths[sensor] # getting each sensor path
+        df = load_sensor_frame(path, sensor) # loading in a df
         if df is None:
             return None
         frames.append(df)
         tmins.append(df["time"].min())
         tmaxs.append(df["time"].max())
         used_files.append(path.name)
+        # storing data, time borders and path in dedicated lists
 
     t_start = max(tmins)
     t_end = min(tmaxs)
-    if t_end <= t_start:
-        LOGGER.warning("No overlap for %s (start=%s, end=%s)", rec_key, t_start, t_end)
-        return None
-
     target_index = pd.date_range(start=t_start, end=t_end, freq=FREQ)
-    resampled = [resample_to_grid(df, target_index, t_start, t_end) for df in frames]
+    # definition of overlapping window and its inner timeline
+
+    resampled = []
+    for df in frames:
+        resampled.append(resample_to_grid(df, target_index, t_start, t_end))
+    # for each sensor I'm calling the resampling function appending every output to resampled list
+
 
     merged = pd.concat(resampled, axis=1)
-    if merged.columns.duplicated().any():
-        raise ValueError(f"Duplicate columns in merged frame for {rec_key}")
+    # horizontal merging of resampled frames of each sensor
 
-    second_elapsed = (merged.index - merged.index[0]).total_seconds()
-    merged.insert(0, "second_elapsed", second_elapsed)
-    merged = merged.reset_index(drop=True)
-
-    nan_ratios = merged.isna().mean()
-    high_nan = nan_ratios[nan_ratios > 0.01]
-    for col, ratio in high_nan.items():
-        LOGGER.warning("High NaN ratio for %s.%s: %.2f%%", rec_key, col, ratio * 100)
+    second_elapsed = (merged.index - merged.index[0]).total_seconds() # new time delta index converted in floatt
+    merged.insert(0, "second_elapsed", second_elapsed) # inserting new index timeline
+    merged = merged.reset_index(drop=True) # discarding the previous datetime index
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{rec_key}.csv"
     merged.to_csv(out_path, index=False)
-
-    overlap_seconds = (t_end - t_start).total_seconds()
-    LOGGER.info(
-        "Merged %s using %s | overlap %.2fs | output %s | shape %s",
-        rec_key,
-        ", ".join(used_files),
-        overlap_seconds,
-        out_path,
-        merged.shape,
-    )
+    # saving as <class>_<ID>.csv
     return out_path
-
+#-------------------------------------------------------------------------------------------------------------------
 
 def run_merge(extracted_dir: Optional[Path] = None, output_dir: Optional[Path] = None) -> None:
     # Run the merge process for all recordings in extracted_dir.
     root = project_root()
     extracted_dir = extracted_dir or (root / "Data" / "interim" / "extracted")
     output_dir = output_dir or (root / "Data" / "interim" / "merged")
+    # get all folder paths
 
     grouped = discover_files(extracted_dir)
-    LOGGER.info("Recordings found: %s", len(grouped))
+    # call of the discovering files function and get the double layer dictionary
 
     merged_count = 0
+    # iteration of two keys pairs over recordings in sorted order
     for rec_key, sensors in sorted(grouped.items()):
-        missing = set(SENSORS) - sensors.keys()
+        missing = set(SENSORS) - sensors.keys() # check if some required sensor is missing
         if missing:
-            LOGGER.warning("Skipping %s, missing: %s", rec_key, ", ".join(sorted(missing)))
             continue
         out_path = merge_recording(rec_key, sensors, output_dir)
         if out_path is not None:
