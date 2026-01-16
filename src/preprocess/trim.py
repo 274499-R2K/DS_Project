@@ -3,7 +3,6 @@ import argparse
 import logging
 from pathlib import Path
 from typing import Optional
-
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
