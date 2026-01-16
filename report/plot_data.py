@@ -15,7 +15,7 @@ ORI_COLS = ["ori_qx","ori_qy", "ori_qz","ori_qw", "ori_roll","ori_pitch","ori_ya
 
 # WINDOW SIZE
 start=5
-end=20
+end=25
 
 def load_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
@@ -43,10 +43,11 @@ def plot_multiline(df: pd.DataFrame,x_col: str,y_cols: list[str],title: str,ylab
 
 def main() -> None:
     print("Inserire il nome del file di cui visualizzare i dati. ", "\n", " formato richiesto: classe_ID.csv","\n", "ES: wlk_01.csv")
-    ans=input("Inserire il nome del dato: ")
+    ans=input("Inserire il nome del file: ")
     script_dir = Path(__file__).resolve().parent
 
     my_list = ["trimmed","smoothed"]
+
 
     for target in my_list:
         csv_path = script_dir.parent / "Data" / "processed" / target / ans
@@ -79,3 +80,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
