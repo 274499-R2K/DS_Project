@@ -9,7 +9,7 @@ from typing import Dict, Iterable, List, Tuple
 import pandas as pd
 
 LOGGER = logging.getLogger(__name__)
-K_FOLDS = 3
+K_FOLDS = 5
 OVERWRITE = True
 
 def project_root() -> Path:
@@ -51,7 +51,7 @@ def _build_splits(
     class_counts = {label: len(rec_map) for label, rec_map in grouped.items()}
     n_min = min(class_counts.values())
 
-    n_test = int(math.floor(0.2 * n_min))
+    n_test = int(math.floor(n_min/6))
     n_trainval = n_min - n_test
     n_per_fold = n_trainval // K_FOLDS
 

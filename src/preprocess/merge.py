@@ -125,7 +125,7 @@ def merge_recording(rec_key: str, sensor_paths: Dict[str, Path], output_dir: Pat
         df = load_sensor_frame(path, sensor) # loading in a df
         if df is None:
             return None
-        frames.append(df)
+        frames.append(df) # creating list of dataframes
         tmins.append(df["time"].min())
         tmaxs.append(df["time"].max())
         used_files.append(path.name)
