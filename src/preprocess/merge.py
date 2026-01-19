@@ -65,7 +65,7 @@ def load_sensor_frame(path: Path, sensor: str) -> Optional[pd.DataFrame]:
     # convertion to pd dateformat with known ns unit and time zone assumed known
 
     drop_cols = [col for col in df.columns if col.lower() in {"second_elapsed", "seconds_elapsed"}]
-    # get the "second elapsed" columns to erease
+    # extracting the "second_elapsed" columns
     if drop_cols:
         df = df.drop(columns=drop_cols) # dropping the columns
 
@@ -78,7 +78,7 @@ def load_sensor_frame(path: Path, sensor: str) -> Optional[pd.DataFrame]:
     rename = {col: f"{prefix}{col}" for col in measurement_cols}
     df = df.rename(columns=rename)
     # changing columns title name with sensor prefix + current name
-    # from x -> acc_x
+    # from x -> acc_x . It's need to conserve the sensor belonging behaviour in the merged table
 
     return df
 #-----------------------------------------------------------------------------------------------------
@@ -92,17 +92,17 @@ def resample_to_grid(df: pd.DataFrame, target_index: pd.DatetimeIndex, t_start: 
     # t_start and t_end -> overlap window external extremes
 
     df = df.sort_values("time").drop_duplicates(subset="time", keep="first") # sort and remove duplicate, unnecessary
-    df = df.set_index("time") # giving time column as index needed by interpolate method
+    df = df.set_index("time") # setting time column as index needed by interpolate method
 
-    df = df.loc[(df.index >= t_start) & (df.index <= t_end)] # cropping out window samples
+    df = df.loc[(df.index >= t_start) & (df.index <= t_end)] # cropping outer-window samples
 
     df = df.reindex(df.index.union(target_index)).sort_index()
     # I'm creating a new index incorporating the original timestamps indexes and the desired master timestamps series
-    # Needed for interpolation that is working woth neighbours
+    # Needed for interpolation since it is working interpolating with neighbours
 
     df = df.interpolate(method="time").ffill(limit=2).bfill(limit=2)
     # forward and backward filling up to 40ms to mitigate neighbour missing data
-    df = df.reindex(target_index) # now i reduce to the master timestamps series
+    df = df.reindex(target_index) # now I reduce to the master timestamps series
     return df
 #---------------------------------------------------------------------------------------------------------------------------------
 
@@ -111,7 +111,7 @@ def resample_to_grid(df: pd.DataFrame, target_index: pd.DatetimeIndex, t_start: 
 
 def merge_recording(rec_key: str, sensor_paths: Dict[str, Path], output_dir: Path) -> Optional[Path]:
     # rec_key class_ID pair key to access first layer
-    # sensor_paths -> second layer's dictionary sensor:path
+    # sensor_paths -> second layer's dictionary sensor:path -> I'm getting all sensor paths of rec_key
     # output_dir where to store merging
 
     frames = [] # list for each sensor's dataframe
@@ -119,12 +119,13 @@ def merge_recording(rec_key: str, sensor_paths: Dict[str, Path], output_dir: Pat
     tmaxs = [] # each sensor’s last timestamp
     used_files = [] # names of files used for logging
 
+    # we now loop to get
     for sensor in SENSORS:
         path = sensor_paths[sensor] # getting each sensor path
         df = load_sensor_frame(path, sensor) # loading in a df
         if df is None:
             return None
-        frames.append(df)
+        frames.append(df) # creating list of dataframes
         tmins.append(df["time"].min())
         tmaxs.append(df["time"].max())
         used_files.append(path.name)
@@ -166,7 +167,7 @@ def run_merge(extracted_dir: Optional[Path] = None, output_dir: Optional[Path] =
     # call of the discovering files function and get the double layer dictionary
 
     merged_count = 0
-    # iteration of two keys pairs over recordings in sorted order
+    # iteration of rec_keys over all recordings in sorted order
     for rec_key, sensors in sorted(grouped.items()):
         missing = set(SENSORS) - sensors.keys() # check if some required sensor is missing
         if missing:
