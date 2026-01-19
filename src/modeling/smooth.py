@@ -9,7 +9,7 @@ def _parse_prefixes(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def _smooth_columns(df: pd.DataFrame,columns: list[str],window_length: int,polyorder: int,mode: str,) -> pd.DataFrame:
+def smooth_columns(df: pd.DataFrame,columns: list[str],window_length: int,polyorder: int,mode: str,) -> pd.DataFrame:
     for col in columns:
         series = df[col].to_numpy(dtype=float) #using numpy array to save columns values
         df[col] = sf(series,window_length=window_length,polyorder=polyorder,deriv=0,mode=mode,)
@@ -60,7 +60,7 @@ def main() -> int:
             df.to_csv(output_path, index=False)
             continue
 
-        df = _smooth_columns(df, smooth_cols, window_length, polyorder, mode)
+        df = smooth_columns(df, smooth_cols, window_length, polyorder, mode)
         # calling smooth function
 
         df.to_csv(output_path, index=False) # getting smooth values
